@@ -1,45 +1,320 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>BLE Thermal Printer</title>
+<title>BLE Thermal Printer</title>
+<style>
+body {
+    font-family: Arial, sans-serif;
+    max-width: 600px;
+    margin: 50px auto;
+    padding: 20px;
+}
+button {
+    background: #007bff;
+    color: white;
+    border: none;
+    padding: 12px 24px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 16px;
+    margin: 10px 5px;
+}
+button:hover {
+    background: #0056b3;
+}
+button:disabled {
+    background: #ccc;
+    cursor: not-allowed;
+}
+#status {
+    margin: 20px 0;
+    padding: 10px;
+    border-radius: 5px;
+    display: none;
+}
+.success {
+    background: #d4edda;
+    color: #155724;
+    border: 1px solid #c3e6cb;
+}
+.error {
+    background: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
+}
+.info {
+    background: #d1ecf1;
+    color: #0c5460;
+    border: 1px solid #bee5eb;
+}
+textarea {
+    width: 100%;
+    height: 100px;
+    margin: 10px 0;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    font-family: monospace;
+}
+</style>
 </head>
 <body>
-  <h1>BLE Thermal Printer</h1>
-  <button id="connect">Scan & Print</button>
+<h1>BLE Thermal Printer</h1>
+<div>
+    <button id="connect">Connect to Printer</button>
+    <button id="disconnect" disabled>Disconnect</button>
+</div>
+<div id="status"></div>
 
-  <script>
-    async function connectAndPrint() {
-      try {
+<div id="printSection" style="display: none;">
+    <h3>Print Options</h3>
+    <textarea id="customText" placeholder="Enter custom text to print...">Hello, World!
+This is a test print.
+Line 3 of the test.</textarea>
+    <div>
+        <button id="printText">Print Custom Text</button>
+        <button id="printTest">Print Test Page</button>
+        <button id="cutPaper">Cut Paper</button>
+    </div>
+</div>
+
+<script>
+let device = null;
+let characteristic = null;
+
+// ESC/POS commands for thermal printers
+const ESC = 0x1B;
+const GS = 0x1D;
+
+// Common thermal printer commands
+const commands = {
+    INIT: [ESC, 0x40],                    // Initialize printer
+    FEED_LINE: [0x0A],                    // Line feed
+    CUT_PAPER: [GS, 0x56, 0x00],        // Cut paper
+    ALIGN_LEFT: [ESC, 0x61, 0x00],      // Left align
+    ALIGN_CENTER: [ESC, 0x61, 0x01],    // Center align
+    ALIGN_RIGHT: [ESC, 0x61, 0x02],     // Right align
+    BOLD_ON: [ESC, 0x45, 0x01],         // Bold on
+    BOLD_OFF: [ESC, 0x45, 0x00],        // Bold off
+    UNDERLINE_ON: [ESC, 0x2D, 0x01],    // Underline on
+    UNDERLINE_OFF: [ESC, 0x2D, 0x00],   // Underline off
+    DOUBLE_HEIGHT: [ESC, 0x21, 0x10],   // Double height
+    NORMAL_SIZE: [ESC, 0x21, 0x00],     // Normal size
+};
+
+function showStatus(message, type = 'info') {
+    const statusDiv = document.getElementById('status');
+    statusDiv.textContent = message;
+    statusDiv.className = type;
+    statusDiv.style.display = 'block';
+    console.log(`[${type.toUpperCase()}] ${message}`);
+}
+
+function updateUI(connected) {
+    document.getElementById('connect').disabled = connected;
+    document.getElementById('disconnect').disabled = !connected;
+    document.getElementById('printSection').style.display = connected ? 'block' : 'none';
+}
+
+async function connectToPrinter() {
+    try {
+        showStatus('Scanning for printers...', 'info');
+        
         const serviceUUID = 'e7810a71-73ae-499d-8c15-faa9aef0c3f2';
         const characteristicUUID = 'bef8d6c9-9c21-4c9e-b632-bd58c1009f9f';
-
-        // Request the printer
-        const device = await navigator.bluetooth.requestDevice({
-          filters: [{ namePrefix: 'Printer' }],
-          optionalServices: [serviceUUID]
+        
+        // Request the printer with multiple possible filters
+        device = await navigator.bluetooth.requestDevice({
+            filters: [
+                { namePrefix: 'Printer' },
+                { namePrefix: 'MTP-' },
+                { namePrefix: 'POS-' },
+                { namePrefix: 'Thermal' }
+            ],
+            optionalServices: [serviceUUID, '000018f0-0000-1000-8000-00805f9b34fb'] // Common thermal printer service
         });
 
+        showStatus(`Connecting to ${device.name}...`, 'info');
+        
         const server = await device.gatt.connect();
         const service = await server.getPrimaryService(serviceUUID);
-        const characteristic = await service.getCharacteristic(characteristicUUID);
-
-        // Text to print
-        const encoder = new TextEncoder();
-        const message = encoder.encode("Hello, world\n");
-
-        // Write to printer
-        await characteristic.writeValue(message);
-
-        console.log("Printed successfully!");
-        alert("Printed successfully!");
-
-      } catch (error) {
-        console.error("Error:", error);
-        alert("Failed to print: " + error.message);
-      }
+        characteristic = await service.getCharacteristic(characteristicUUID);
+        
+        // Initialize the printer
+        await sendCommand(commands.INIT);
+        
+        showStatus(`Connected to ${device.name}`, 'success');
+        updateUI(true);
+        
+    } catch (error) {
+        showStatus(`Connection failed: ${error.message}`, 'error');
+        console.error('Connection error:', error);
     }
+}
 
-    document.getElementById('connect').addEventListener('click', connectAndPrint);
-  </script>
+async function disconnect() {
+    try {
+        if (device && device.gatt.connected) {
+            await device.gatt.disconnect();
+        }
+        device = null;
+        characteristic = null;
+        showStatus('Disconnected', 'info');
+        updateUI(false);
+    } catch (error) {
+        showStatus(`Disconnect error: ${error.message}`, 'error');
+    }
+}
+
+async function sendCommand(command) {
+    if (!characteristic) {
+        throw new Error('Not connected to printer');
+    }
+    
+    const data = new Uint8Array(command);
+    await characteristic.writeValue(data);
+    // Small delay to ensure command is processed
+    await new Promise(resolve => setTimeout(resolve, 50));
+}
+
+async function sendText(text) {
+    if (!characteristic) {
+        throw new Error('Not connected to printer');
+    }
+    
+    const encoder = new TextEncoder();
+    const data = encoder.encode(text);
+    await characteristic.writeValue(data);
+    await new Promise(resolve => setTimeout(resolve, 50));
+}
+
+async function printCustomText() {
+    try {
+        const text = document.getElementById('customText').value;
+        if (!text.trim()) {
+            showStatus('Please enter text to print', 'error');
+            return;
+        }
+        
+        showStatus('Printing...', 'info');
+        
+        // Initialize and set up printer
+        await sendCommand(commands.INIT);
+        await sendCommand(commands.ALIGN_LEFT);
+        await sendCommand(commands.NORMAL_SIZE);
+        
+        // Send the text
+        await sendText(text);
+        
+        // Add some line feeds and cut paper
+        await sendCommand(commands.FEED_LINE);
+        await sendCommand(commands.FEED_LINE);
+        await sendCommand(commands.CUT_PAPER);
+        
+        showStatus('Text printed successfully!', 'success');
+        
+    } catch (error) {
+        showStatus(`Print failed: ${error.message}`, 'error');
+        console.error('Print error:', error);
+    }
+}
+
+async function printTestPage() {
+    try {
+        showStatus('Printing test page...', 'info');
+        
+        // Initialize printer
+        await sendCommand(commands.INIT);
+        
+        // Title - centered and bold
+        await sendCommand(commands.ALIGN_CENTER);
+        await sendCommand(commands.BOLD_ON);
+        await sendCommand(commands.DOUBLE_HEIGHT);
+        await sendText('TEST PRINT');
+        await sendCommand(commands.FEED_LINE);
+        await sendCommand(commands.NORMAL_SIZE);
+        await sendCommand(commands.BOLD_OFF);
+        
+        // Separator line
+        await sendText('================================');
+        await sendCommand(commands.FEED_LINE);
+        
+        // Left aligned content
+        await sendCommand(commands.ALIGN_LEFT);
+        await sendText('Printer: ' + (device ? device.name : 'Unknown'));
+        await sendCommand(commands.FEED_LINE);
+        await sendText('Date: ' + new Date().toLocaleString());
+        await sendCommand(commands.FEED_LINE);
+        await sendCommand(commands.FEED_LINE);
+        
+        // Different formatting tests
+        await sendCommand(commands.BOLD_ON);
+        await sendText('Bold Text Test');
+        await sendCommand(commands.BOLD_OFF);
+        await sendCommand(commands.FEED_LINE);
+        
+        await sendCommand(commands.UNDERLINE_ON);
+        await sendText('Underlined Text Test');
+        await sendCommand(commands.UNDERLINE_OFF);
+        await sendCommand(commands.FEED_LINE);
+        
+        // Right aligned
+        await sendCommand(commands.ALIGN_RIGHT);
+        await sendText('Right Aligned');
+        await sendCommand(commands.FEED_LINE);
+        
+        // Center aligned
+        await sendCommand(commands.ALIGN_CENTER);
+        await sendText('Center Aligned');
+        await sendCommand(commands.FEED_LINE);
+        await sendCommand(commands.FEED_LINE);
+        
+        await sendText('Test completed successfully!');
+        await sendCommand(commands.FEED_LINE);
+        await sendCommand(commands.FEED_LINE);
+        await sendCommand(commands.FEED_LINE);
+        
+        // Cut paper
+        await sendCommand(commands.CUT_PAPER);
+        
+        showStatus('Test page printed successfully!', 'success');
+        
+    } catch (error) {
+        showStatus(`Test print failed: ${error.message}`, 'error');
+        console.error('Test print error:', error);
+    }
+}
+
+async function cutPaper() {
+    try {
+        showStatus('Cutting paper...', 'info');
+        await sendCommand(commands.FEED_LINE);
+        await sendCommand(commands.FEED_LINE);
+        await sendCommand(commands.CUT_PAPER);
+        showStatus('Paper cut!', 'success');
+    } catch (error) {
+        showStatus(`Cut failed: ${error.message}`, 'error');
+        console.error('Cut error:', error);
+    }
+}
+
+// Event listeners
+document.getElementById('connect').addEventListener('click', connectToPrinter);
+document.getElementById('disconnect').addEventListener('click', disconnect);
+document.getElementById('printText').addEventListener('click', printCustomText);
+document.getElementById('printTest').addEventListener('click', printTestPage);
+document.getElementById('cutPaper').addEventListener('click', cutPaper);
+
+// Handle device disconnection
+navigator.bluetooth.addEventListener('advertisementreceived', (event) => {
+    console.log('Advertisement received from', event.device.name);
+});
+
+// Check if Web Bluetooth is supported
+if (!navigator.bluetooth) {
+    showStatus('Web Bluetooth is not supported in this browser', 'error');
+    document.getElementById('connect').disabled = true;
+}
+</script>
 </body>
 </html>
