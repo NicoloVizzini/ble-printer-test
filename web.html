@@ -1,165 +1,76 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>Universal BLE Thermal Printer</title>
+<title>Simple Auto BLE Printer</title>
 <style>
 body {
     font-family: Arial, sans-serif;
-    max-width: 800px;
-    margin: 20px auto;
+    max-width: 400px;
+    margin: 100px auto;
     padding: 20px;
+    text-align: center;
 }
 button {
     background: #007bff;
     color: white;
     border: none;
-    padding: 12px 24px;
-    border-radius: 5px;
+    padding: 15px 30px;
+    border-radius: 8px;
     cursor: pointer;
-    font-size: 16px;
-    margin: 10px 5px;
+    font-size: 18px;
+    margin: 10px;
+    width: 200px;
 }
 button:hover { background: #0056b3; }
 button:disabled { background: #ccc; cursor: not-allowed; }
-.device-card {
-    border: 1px solid #ddd;
-    border-radius: 8px;
-    padding: 15px;
-    margin: 10px 0;
-    background: #f9f9f9;
-}
-.device-card.selected {
-    border-color: #007bff;
-    background: #e7f3ff;
-}
-.device-name { font-weight: bold; font-size: 16px; }
-.device-id { color: #666; font-size: 12px; font-family: monospace; }
-.service-list { margin: 10px 0; }
-.service { 
-    background: #fff; 
-    padding: 8px; 
-    margin: 5px 0; 
-    border-radius: 4px;
-    border-left: 3px solid #007bff;
-}
-.characteristic { 
-    background: #f0f8ff; 
-    padding: 5px 10px; 
-    margin: 3px 0; 
-    border-radius: 3px;
-    font-size: 12px;
-    font-family: monospace;
-}
 #status {
     margin: 20px 0;
-    padding: 10px;
-    border-radius: 5px;
-    display: none;
-}
-.success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
-.error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
-.info { background: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
-.warning { background: #fff3cd; color: #856404; border: 1px solid #ffeaa7; }
-textarea {
-    width: 100%;
-    height: 80px;
-    margin: 10px 0;
-    padding: 10px;
-    border: 1px solid #ddd;
-    border-radius: 5px;
-    font-family: monospace;
-}
-.section {
-    border: 1px solid #ddd;
-    border-radius: 8px;
     padding: 15px;
-    margin: 20px 0;
-    background: #fafafa;
+    border-radius: 8px;
+    font-size: 16px;
 }
-.section h3 { margin-top: 0; }
+.success { background: #d4edda; color: #155724; }
+.error { background: #f8d7da; color: #721c24; }
+.info { background: #d1ecf1; color: #0c5460; }
 </style>
 </head>
 <body>
-<h1>Universal BLE Thermal Printer Scanner</h1>
-
-<div class="section">
-    <h3>Step 1: Scan for BLE Devices</h3>
-    <button id="scanAll">Scan All BLE Devices</button>
-    <button id="scanPrinters">Scan Likely Printers Only</button>
-    <div id="status"></div>
-</div>
-
-<div id="deviceList" class="section" style="display: none;">
-    <h3>Step 2: Select Your Printer</h3>
-    <div id="devices"></div>
-</div>
-
-<div id="serviceExplorer" class="section" style="display: none;">
-    <h3>Step 3: Explore Services & Characteristics</h3>
-    <div id="services"></div>
-    <button id="testSelected" disabled>Test Selected Characteristic</button>
-</div>
-
-<div id="printSection" class="section" style="display: none;">
-    <h3>Step 4: Print</h3>
-    <textarea id="customText" placeholder="Enter text to print...">Hello from Universal BLE Printer!</textarea>
-    <div>
-        <button id="printSimple">Print as Plain Text</button>
-        <button id="printFormatted">Print with ESC/POS Commands</button>
-        <button id="disconnect">Disconnect</button>
-    </div>
-</div>
+<h1>Simple BLE Printer</h1>
+<button id="printBtn">Connect & Print "Hello World"</button>
+<div id="status"></div>
 
 <script>
-let selectedDevice = null;
-let selectedService = null;
-let selectedCharacteristic = null;
-let connectedServer = null;
-
-// Common thermal printer service UUIDs
-const COMMON_PRINTER_SERVICES = [
-    'e7810a71-73ae-499d-8c15-faa9aef0c3f2', // Your printer's service
-    '000018f0-0000-1000-8000-00805f9b34fb', // Common thermal printer service
-    '49535343-fe7d-4ae5-8fa9-9fafd205e455', // Another common one
-    '6e400001-b5a3-f393-e0a9-e50e24dcca9e', // Nordic UART Service
+// Common printer service UUIDs to try
+const PRINTER_SERVICES = [
+    'e7810a71-73ae-499d-8c15-faa9aef0c3f2', // Your original service
+    '000018f0-0000-1000-8000-00805f9b34fb', // Generic printer service
+    '49535343-fe7d-4ae5-8fa9-9fafd205e455', // Microchip service
+    '6e400001-b5a3-f393-e0a9-e50e24dcca9e', // Nordic UART
 ];
 
-// ESC/POS commands
-const ESC = 0x1B;
-const commands = {
-    INIT: [ESC, 0x40],
-    FEED_LINE: [0x0A],
-    CUT_PAPER: [0x1D, 0x56, 0x00],
-};
+// Common printer characteristic UUIDs to try
+const PRINTER_CHARACTERISTICS = [
+    'bef8d6c9-9c21-4c9e-b632-bd58c1009f9f', // Your original characteristic
+    '000018f1-0000-1000-8000-00805f9b34fb', // Generic printer characteristic
+    '49535343-1e4d-4bd9-ba61-23c647249616', // Microchip TX
+    '6e400002-b5a3-f393-e0a9-e50e24dcca9e', // Nordic UART TX
+];
 
 function showStatus(message, type = 'info') {
     const statusDiv = document.getElementById('status');
     statusDiv.textContent = message;
     statusDiv.className = type;
-    statusDiv.style.display = 'block';
-    console.log(`[${type.toUpperCase()}] ${message}`);
+    console.log(`[${type}] ${message}`);
 }
 
-async function scanAllDevices() {
+async function connectAndPrint() {
+    const btn = document.getElementById('printBtn');
+    btn.disabled = true;
+    
     try {
-        showStatus('Scanning for all BLE devices...', 'info');
+        showStatus('Scanning for printers...', 'info');
         
-        const device = await navigator.bluetooth.requestDevice({
-            acceptAllDevices: true,
-            optionalServices: COMMON_PRINTER_SERVICES
-        });
-        
-        await exploreDevice(device);
-        
-    } catch (error) {
-        showStatus(`Scan failed: ${error.message}`, 'error');
-    }
-}
-
-async function scanPrinters() {
-    try {
-        showStatus('Scanning for likely printers...', 'info');
-        
+        // Request printer device
         const device = await navigator.bluetooth.requestDevice({
             filters: [
                 { namePrefix: 'Printer' },
@@ -169,261 +80,183 @@ async function scanPrinters() {
                 { namePrefix: 'BT-' },
                 { namePrefix: 'PTP-' },
                 { namePrefix: 'RPP' },
-                { services: COMMON_PRINTER_SERVICES }
             ],
-            optionalServices: COMMON_PRINTER_SERVICES
+            optionalServices: PRINTER_SERVICES
         });
         
-        await exploreDevice(device);
+        showStatus(`Connecting to ${device.name}...`, 'info');
         
-    } catch (error) {
-        showStatus(`Scan failed: ${error.message}`, 'error');
-    }
-}
-
-async function exploreDevice(device) {
-    try {
-        selectedDevice = device;
-        showStatus(`Connecting to ${device.name || 'Unknown Device'}...`, 'info');
+        // Connect to device
+        const server = await device.gatt.connect();
         
-        connectedServer = await device.gatt.connect();
-        showStatus(`Connected! Discovering services...`, 'info');
+        showStatus('Finding print service...', 'info');
         
-        const services = await connectedServer.getPrimaryServices();
+        // Try to find a working service/characteristic combination
+        let printCharacteristic = null;
         
-        displayDevice(device, services);
-        
-    } catch (error) {
-        showStatus(`Device exploration failed: ${error.message}`, 'error');
-    }
-}
-
-async function displayDevice(device, services) {
-    const deviceDiv = document.getElementById('devices');
-    const servicesDiv = document.getElementById('services');
-    
-    // Display device info
-    deviceDiv.innerHTML = `
-        <div class="device-card selected">
-            <div class="device-name">${device.name || 'Unknown Device'}</div>
-            <div class="device-id">ID: ${device.id}</div>
-            <div>GATT Connected: ${device.gatt.connected ? 'Yes' : 'No'}</div>
-        </div>
-    `;
-    
-    // Display services and characteristics
-    let servicesHtml = '';
-    
-    for (const service of services) {
-        const serviceId = service.uuid;
-        const serviceName = getServiceName(serviceId);
-        
-        try {
-            const characteristics = await service.getCharacteristics();
-            
-            servicesHtml += `
-                <div class="service">
-                    <strong>${serviceName}</strong><br>
-                    <small>UUID: ${serviceId}</small>
-                    <div class="characteristics">
-            `;
-            
-            for (const char of characteristics) {
-                const charId = char.uuid;
-                const properties = [];
-                if (char.properties.read) properties.push('read');
-                if (char.properties.write) properties.push('write');
-                if (char.properties.writeWithoutResponse) properties.push('writeWithoutResponse');
-                if (char.properties.notify) properties.push('notify');
+        for (const serviceUUID of PRINTER_SERVICES) {
+            try {
+                const service = await server.getPrimaryService(serviceUUID);
+                console.log(`Found service: ${serviceUUID}`);
                 
-                const canWrite = char.properties.write || char.properties.writeWithoutResponse;
-                const bgColor = canWrite ? '#e8f5e8' : '#f0f8ff';
+                for (const charUUID of PRINTER_CHARACTERISTICS) {
+                    try {
+                        const characteristic = await service.getCharacteristic(charUUID);
+                        
+                        // Check if we can write to this characteristic
+                        if (characteristic.properties.write || characteristic.properties.writeWithoutResponse) {
+                            printCharacteristic = characteristic;
+                            console.log(`Found writable characteristic: ${charUUID}`);
+                            break;
+                        }
+                    } catch (charError) {
+                        // This characteristic doesn't exist in this service, try next
+                        continue;
+                    }
+                }
                 
-                servicesHtml += `
-                    <div class="characteristic" style="background: ${bgColor};" 
-                         onclick="selectCharacteristic('${serviceId}', '${charId}', ${canWrite})"
-                         style="cursor: pointer;">
-                        <strong>Characteristic:</strong> ${charId}<br>
-                        <strong>Properties:</strong> ${properties.join(', ')}
-                        ${canWrite ? '<br><em>← Click to select for printing</em>' : ''}
-                    </div>
-                `;
+                if (printCharacteristic) break;
+                
+            } catch (serviceError) {
+                // This service doesn't exist, try next
+                continue;
             }
-            
-            servicesHtml += '</div></div>';
-            
-        } catch (error) {
-            servicesHtml += `
-                <div class="service">
-                    <strong>${serviceName}</strong><br>
-                    <small>UUID: ${serviceId}</small><br>
-                    <em>Could not read characteristics: ${error.message}</em>
-                </div>
-            `;
         }
-    }
-    
-    servicesDiv.innerHTML = servicesHtml;
-    
-    document.getElementById('deviceList').style.display = 'block';
-    document.getElementById('serviceExplorer').style.display = 'block';
-    
-    showStatus('Device explored! Click on a writable characteristic to select it for printing.', 'success');
-}
-
-function getServiceName(uuid) {
-    const knownServices = {
-        'e7810a71-73ae-499d-8c15-faa9aef0c3f2': 'Custom Printer Service',
-        '000018f0-0000-1000-8000-00805f9b34fb': 'Generic Printer Service',
-        '49535343-fe7d-4ae5-8fa9-9fafd205e455': 'Microchip Data Service',
-        '6e400001-b5a3-f393-e0a9-e50e24dcca9e': 'Nordic UART Service',
-        '0000180f-0000-1000-8000-00805f9b34fb': 'Battery Service',
-        '0000180a-0000-1000-8000-00805f9b34fb': 'Device Information Service',
-    };
-    
-    return knownServices[uuid] || `Unknown Service (${uuid.substring(0, 8)}...)`;
-}
-
-async function selectCharacteristic(serviceUuid, charUuid, canWrite) {
-    if (!canWrite) {
-        showStatus('This characteristic is not writable!', 'warning');
-        return;
-    }
-    
-    try {
-        const service = await connectedServer.getPrimaryService(serviceUuid);
-        const characteristic = await service.getCharacteristic(charUuid);
         
-        selectedService = service;
-        selectedCharacteristic = characteristic;
+        if (!printCharacteristic) {
+            // If common UUIDs don't work, try to discover automatically
+            showStatus('Common UUIDs failed, discovering services...', 'info');
+            printCharacteristic = await discoverPrintCharacteristic(server);
+        }
         
-        // Highlight selected characteristic
-        document.querySelectorAll('.characteristic').forEach(el => {
-            el.style.border = 'none';
-        });
-        event.target.style.border = '2px solid #007bff';
+        if (!printCharacteristic) {
+            throw new Error('No writable characteristic found for printing');
+        }
         
-        document.getElementById('testSelected').disabled = false;
-        document.getElementById('printSection').style.display = 'block';
+        showStatus('Printing "Hello World"...', 'info');
         
-        showStatus(`Selected characteristic: ${charUuid}`, 'success');
+        // Try different printing methods
+        await tryPrintMethods(printCharacteristic);
+        
+        showStatus('✅ Hello World printed successfully!', 'success');
+        
+        // Disconnect
+        setTimeout(() => {
+            server.disconnect();
+            showStatus('Disconnected. Ready to print again!', 'info');
+            btn.disabled = false;
+        }, 2000);
         
     } catch (error) {
-        showStatus(`Failed to select characteristic: ${error.message}`, 'error');
+        showStatus(`❌ Failed: ${error.message}`, 'error');
+        btn.disabled = false;
     }
 }
 
-async function testSelected() {
-    if (!selectedCharacteristic) {
-        showStatus('No characteristic selected!', 'error');
-        return;
-    }
-    
+async function discoverPrintCharacteristic(server) {
     try {
-        showStatus('Testing characteristic with simple message...', 'info');
+        const services = await server.getPrimaryServices();
         
-        const encoder = new TextEncoder();
-        const testMessage = encoder.encode('TEST\n');
-        
-        await selectedCharacteristic.writeValue(testMessage);
-        
-        showStatus('Test message sent successfully! Check if anything printed.', 'success');
-        
+        for (const service of services) {
+            try {
+                const characteristics = await service.getCharacteristics();
+                
+                for (const char of characteristics) {
+                    if (char.properties.write || char.properties.writeWithoutResponse) {
+                        console.log(`Found writable characteristic: ${char.uuid} in service ${service.uuid}`);
+                        return char;
+                    }
+                }
+            } catch (error) {
+                continue;
+            }
+        }
     } catch (error) {
-        showStatus(`Test failed: ${error.message}`, 'error');
-    }
-}
-
-async function printSimple() {
-    if (!selectedCharacteristic) {
-        showStatus('No characteristic selected!', 'error');
-        return;
+        console.error('Discovery failed:', error);
     }
     
-    try {
-        const text = document.getElementById('customText').value;
-        showStatus('Printing as plain text...', 'info');
-        
-        const encoder = new TextEncoder();
-        const data = encoder.encode(text + '\n\n\n');
-        
-        await selectedCharacteristic.writeValue(data);
-        
-        showStatus('Plain text sent to printer!', 'success');
-        
-    } catch (error) {
-        showStatus(`Print failed: ${error.message}`, 'error');
-    }
+    return null;
 }
 
-async function printFormatted() {
-    if (!selectedCharacteristic) {
-        showStatus('No characteristic selected!', 'error');
-        return;
-    }
+async function tryPrintMethods(characteristic) {
+    const message = "Hello World";
     
+    // Method 1: Try with ESC/POS initialization
     try {
-        const text = document.getElementById('customText').value;
-        showStatus('Printing with ESC/POS commands...', 'info');
+        console.log('Trying ESC/POS method...');
         
-        // Send initialization
-        await selectedCharacteristic.writeValue(new Uint8Array(commands.INIT));
-        await new Promise(resolve => setTimeout(resolve, 100));
+        // Initialize printer
+        await characteristic.writeValue(new Uint8Array([0x1B, 0x40])); // ESC @
+        await sleep(100);
         
         // Send text
         const encoder = new TextEncoder();
-        const textData = encoder.encode(text);
-        await selectedCharacteristic.writeValue(textData);
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await characteristic.writeValue(encoder.encode(message));
+        await sleep(50);
         
-        // Send line feeds
-        await selectedCharacteristic.writeValue(new Uint8Array(commands.FEED_LINE));
-        await selectedCharacteristic.writeValue(new Uint8Array(commands.FEED_LINE));
-        await selectedCharacteristic.writeValue(new Uint8Array(commands.FEED_LINE));
+        // Line feeds
+        await characteristic.writeValue(new Uint8Array([0x0A, 0x0A, 0x0A])); // LF LF LF
+        await sleep(50);
         
-        showStatus('Formatted text sent to printer!', 'success');
-        
-    } catch (error) {
-        showStatus(`Formatted print failed: ${error.message}`, 'error');
-    }
-}
-
-async function disconnect() {
-    try {
-        if (connectedServer) {
-            await connectedServer.disconnect();
+        // Try to cut paper (optional, might fail on some printers)
+        try {
+            await characteristic.writeValue(new Uint8Array([0x1D, 0x56, 0x00])); // Cut
+        } catch (cutError) {
+            console.log('Paper cut command failed (normal for some printers)');
         }
-        selectedDevice = null;
-        selectedService = null;
-        selectedCharacteristic = null;
-        connectedServer = null;
         
-        // Reset UI
-        document.getElementById('deviceList').style.display = 'none';
-        document.getElementById('serviceExplorer').style.display = 'none';
-        document.getElementById('printSection').style.display = 'none';
-        document.getElementById('testSelected').disabled = true;
+        return;
         
-        showStatus('Disconnected successfully', 'info');
+    } catch (escError) {
+        console.log('ESC/POS method failed, trying plain text...');
+    }
+    
+    // Method 2: Plain text with line feeds
+    try {
+        console.log('Trying plain text method...');
         
-    } catch (error) {
-        showStatus(`Disconnect error: ${error.message}`, 'error');
+        const encoder = new TextEncoder();
+        const data = encoder.encode(message + '\n\n\n');
+        await characteristic.writeValue(data);
+        
+        return;
+        
+    } catch (plainError) {
+        console.log('Plain text method failed, trying raw bytes...');
+    }
+    
+    // Method 3: Raw bytes
+    try {
+        console.log('Trying raw bytes method...');
+        
+        const bytes = [];
+        for (let i = 0; i < message.length; i++) {
+            bytes.push(message.charCodeAt(i));
+        }
+        bytes.push(0x0A, 0x0A, 0x0A); // Add line feeds
+        
+        await characteristic.writeValue(new Uint8Array(bytes));
+        
+        return;
+        
+    } catch (rawError) {
+        throw new Error('All printing methods failed');
     }
 }
 
-// Event listeners
-document.getElementById('scanAll').addEventListener('click', scanAllDevices);
-document.getElementById('scanPrinters').addEventListener('click', scanPrinters);
-document.getElementById('testSelected').addEventListener('click', testSelected);
-document.getElementById('printSimple').addEventListener('click', printSimple);
-document.getElementById('printFormatted').addEventListener('click', printFormatted);
-document.getElementById('disconnect').addEventListener('click', disconnect);
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// Event listener
+document.getElementById('printBtn').addEventListener('click', connectAndPrint);
 
 // Check Web Bluetooth support
 if (!navigator.bluetooth) {
-    showStatus('Web Bluetooth is not supported in this browser', 'error');
-    document.getElementById('scanAll').disabled = true;
-    document.getElementById('scanPrinters').disabled = true;
+    showStatus('❌ Web Bluetooth not supported in this browser', 'error');
+    document.getElementById('printBtn').disabled = true;
+} else {
+    showStatus('Ready to print! Click the button above.', 'info');
 }
 </script>
 </body>
