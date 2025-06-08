@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>BLE Thermal Printer</title>
+</head>
+<body>
+  <h1>BLE Thermal Printer</h1>
+  <button id="connect">Scan & Print</button>
+
+  <script>
+    async function connectAndPrint() {
+      try {
+        const serviceUUID = 'e7810a71-73ae-499d-8c15-faa9aef0c3f2';
+        const characteristicUUID = 'bef8d6c9-9c21-4c9e-b632-bd58c1009f9f';
+
+        // Request the printer
+        const device = await navigator.bluetooth.requestDevice({
+          filters: [{ namePrefix: 'Printer' }],
+          optionalServices: [serviceUUID]
+        });
+
+        const server = await device.gatt.connect();
+        const service = await server.getPrimaryService(serviceUUID);
+        const characteristic = await service.getCharacteristic(characteristicUUID);
+
+        // Text to print
+        const encoder = new TextEncoder();
+        const message = encoder.encode("Hello, world\n");
+
+        // Write to printer
+        await characteristic.writeValue(message);
+
+        console.log("Printed successfully!");
+        alert("Printed successfully!");
+
+      } catch (error) {
+        console.error("Error:", error);
+        alert("Failed to print: " + error.message);
+      }
+    }
+
+    document.getElementById('connect').addEventListener('click', connectAndPrint);
+  </script>
+</body>
+</html>
